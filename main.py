@@ -1,8 +1,8 @@
 """
 Basic authentication flow on Fast API.
 """
-from fastapi import FastAPI, HTTPException, Body
-from starlette.responses import JSONResponse
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Body, Header
 from app.database import database, engine, metadata
 from models.user import users
 from utils import generate_jwt
@@ -14,11 +14,46 @@ app = FastAPI()
 
 @app.on_event("startup")
 async def startup():
+    """
+    Startup function for connecting to db.
+    """
     await database.connect()
 
 @app.on_event("shutdown")
 async def shutdown():
+    """
+    Shutdown function for reconnecting from db.
+    """
     await database.disconnect()
+
+
+@app.get("/some_info")
+async def some_info(auth_token: Optional[str] = Header(None)):
+    """
+    Example handler for route, that requires user authorization and takes auth-token in header.
+    If header is invalid or missing, doesn't return required info.
+    """
+    if not auth_token:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    desoded_token = generate_jwt.decode_access_token(auth_token)
+    user_id = desoded_token.get("sub")
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid token: subject missing"
+    )
+
+    query = users.select().where(users.c.id == int(user_id))
+    current_user = await database.fetch_one(query)
+    if not current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="User not found"
+    )
+
+    return "Hello world!"
+
 
 
 @app.post("/login")
