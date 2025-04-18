@@ -5,6 +5,9 @@ from datetime import timedelta
 import os
 from typing import Optional
 from jose import jwt, JWTError
+from dotenv import load_dotenv, find_dotenv
+
+load_dotenv(find_dotenv())
 
 
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -16,6 +19,7 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     Helper function for generating JWT token from user's data.
     """
     to_encode = data.copy()
+    print("SECRET_KEY", SECRET_KEY)
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
