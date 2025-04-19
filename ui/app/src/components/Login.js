@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-const Login = ({ onSwitchToRegister }) => {
+const Login = () => {
+  const navigate = useNavigate();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -48,7 +50,7 @@ const Login = ({ onSwitchToRegister }) => {
         {error && <p style={styles.error}>{error}</p>}
         <p>
           Don’t have an account?{' '}
-          <span style={styles.link} onClick={onSwitchToRegister}>Register</span>
+          <span style={styles.link} onClick={() => {navigate("/register")}}>Register</span>
         </p>
       </form>
     </div>

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import axios from 'axios';
+import { useNavigate } from 'react-router-dom';
 
 const API_URL = process.env.REACT_APP_API_URL;
 
-const Register = ({ onSwitchToLogin }) => {
+const Register = () => {
+  const navigate = useNavigate();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -79,7 +81,7 @@ const Register = ({ onSwitchToLogin }) => {
         {success && <p style={styles.success}>{success}</p>}
         <p>
           Already have an account?{' '}
-          <span style={styles.link} onClick={onSwitchToLogin}>Login</span>
+          <span style={styles.link} onClick={() => navigate("/login")}>Login</span>
         </p>
       </form>
     </div>
