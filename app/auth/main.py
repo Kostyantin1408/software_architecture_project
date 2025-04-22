@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Body, Header
 from app.models.user import users
 from app.database import database, engine, metadata
 from utils import generate_jwt
+from app.rabbit_listener.publisher import publish_user_registered
 
 
 metadata.create_all(engine)
@@ -82,6 +83,11 @@ async def register_user(user: dict = Body(...)):
         "sub": str(new_user["id"]),
         "name": new_user["name"],
         "email": new_user["email"],
+    })
+    publish_user_registered({
+      "id":    new_user["id"],
+      "email": new_user["email"],
+      "name":  new_user["name"]
     })
 
     return {"access_token": token, "user": new_user}

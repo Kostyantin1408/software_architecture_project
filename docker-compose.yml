@@ -27,18 +27,45 @@ services:
            --region eu-west-1 \
          || echo 'Table already exists'"
       ]
-
+  rabbitmq:
+    image: rabbitmq:3-management
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672" 
+      - "15672:15672"
   auth-service:
     build:
       context: .  
       dockerfile: app/auth/Dockerfile
     environment:
       DATABASE_URL: sqlite+aiosqlite:///./test.db
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672/
     volumes:
       - .:/app
     ports:
       - "8000:8000"
-
+  rabbit-listener:
+    build:
+      context: .
+      dockerfile: app/rabbit_listener/Dockerfile
+    environment:
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672/
+    restart: on-failure
+    depends_on:
+      - rabbitmq
+  mail-sender:
+    build:
+      context: .
+      dockerfile: app/mail_sender/Dockerfile
+    environment:
+      RABBIT_URL: amqp://guest:guest@rabbitmq:5672/
+      AWS_REGION:  eu-west-1
+      AWS_ACCESS_KEY_ID: dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+    depends_on:
+      - rabbitmq
   slots-service:
     build:
       context: .
