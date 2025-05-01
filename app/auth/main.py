@@ -3,11 +3,11 @@ Basic authentication flow on Fast API.
 """
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Body, Header
-from app.models.user import users
+from app.models.user import users, revoked_tokens
 from app.database import database, engine, metadata
 from utils import generate_jwt
 from app.rabbit_listener.publisher import publish_user_registered
-
+import uuid
 
 metadata.create_all(engine)
 
@@ -41,17 +41,21 @@ async def login_user(user: dict = Body(...)):
 
     email = user["email"]
     password = user["password"]
+    jwt_uuid = str(uuid.uuid4())
 
-    query = users.select().where(users.c.email == email and users.c.password == password)
+    query = users.select().where(
+        (users.c.email == email) &
+        (users.c.password == password)
+    )
     existing_user = await database.fetch_one(query)
     if not existing_user:
         raise HTTPException(status_code=400, detail="No such user! Check your email and password!")
 
-
     token = generate_jwt.create_access_token({
             "sub": str(existing_user["id"]),
             "name": existing_user["name"],
-            "email": existing_user["email"]
+            "email": existing_user["email"],
+            "jit": jwt_uuid
         })
 
     return {"access_token": token, "user": existing_user}
@@ -69,6 +73,7 @@ async def register_user(user: dict = Body(...)):
     name = user["name"]
     email = user["email"]
     password = user["password"]
+    jwt_uuid = str(uuid.uuid4())
     query = users.select().where(users.c.email == email)
     existing_user = await database.fetch_one(query)
     if existing_user:
@@ -83,6 +88,7 @@ async def register_user(user: dict = Body(...)):
         "sub": str(new_user["id"]),
         "name": new_user["name"],
         "email": new_user["email"],
+        "jit": jwt_uuid
     })
     publish_user_registered({
       "id":    new_user["id"],
@@ -91,3 +97,14 @@ async def register_user(user: dict = Body(...)):
     })
 
     return {"access_token": token, "user": new_user}
+
+@app.post("/logout")
+async def logout_user(auth_token: str = Header(...)):
+    """
+    Endpoint handler for user logout.
+    Expects <email> in body.
+    """
+    payload = generate_jwt.decode_access_token(auth_token)
+    jwt_uuid = payload.get("jit")
+    query = revoked_tokens.insert().values(jti=jwt_uuid)
+    await database.execute(query)

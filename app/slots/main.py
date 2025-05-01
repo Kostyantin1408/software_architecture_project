@@ -4,6 +4,8 @@ from app.models.time_slots import TimeSlotIn, TimeSlotOut
 import uuid, os, asyncio
 import aioboto3
 from dotenv import load_dotenv, find_dotenv
+from app.database import database
+from app.models.user import revoked_tokens
 
 load_dotenv(find_dotenv())
 
@@ -14,12 +16,17 @@ DYNAMODB_ENDPOINT = os.getenv("DYNAMODB_ENDPOINT", "http://dynamodb-local:8000")
 app = FastAPI(title="TimeSlot Service")
 
 
-def get_current_user_email(auth_token: str = Header(...)) -> str:
+async def get_current_user_email(auth_token: str = Header(...)) -> str:
     from utils import generate_jwt
     try:
         payload = generate_jwt.decode_access_token(auth_token)
     except Exception:
         raise HTTPException(401, "Invalid token")
+    jwt_uuid = payload.get("jit")
+    query = revoked_tokens.select().where(revoked_tokens.c.jti == jwt_uuid)
+    revoked_token = await database.fetch_one(query)
+    if revoked_token:
+        raise HTTPException(401, "Token is revoked")
     user_email = payload.get("email")
     if not user_email:
         raise HTTPException(401, "Token has no subject")
