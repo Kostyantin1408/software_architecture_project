@@ -6,6 +6,7 @@ from fastapi import FastAPI, HTTPException, Body, Header
 from app.models.user import users, revoked_tokens
 from app.database import database, engine, metadata
 from utils import generate_jwt
+from fastapi.middleware.cors import CORSMiddleware
 from app.rabbit_listener.publisher import publish_user_registered
 import uuid
 
@@ -13,6 +14,13 @@ metadata.create_all(engine)
 
 app = FastAPI()
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # ✅ Allow all origins
+    allow_credentials=True,  # ⚠️ Cannot be used with "*" in some cases (see below)
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.on_event("startup")
 async def startup():
@@ -28,6 +36,34 @@ async def shutdown():
     Shutdown function for reconnecting from db.
     """
     await database.disconnect()
+
+@app.get("/some_info")
+async def some_info(auth_token: Optional[str] = Header(None)):
+    """
+    Example handler for route, that requires user authorization and takes auth-token in header.
+    If header is invalid or missing, doesn't return required info.
+    """
+    if not auth_token:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    desoded_token = generate_jwt.decode_access_token(auth_token)
+    user_id = desoded_token.get("sub")
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid token: subject missing"
+    )
+
+    query = users.select().where(users.c.id == int(user_id))
+    current_user = await database.fetch_one(query)
+    if not current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="User not found"
+    )
+
+    return "Hello world!"
+
 
 
 @app.post("/login")
