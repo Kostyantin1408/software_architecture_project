@@ -12,14 +12,10 @@ metadata.create_all(engine)
 
 app = FastAPI()
 
-origins = [
-    "http://localhost:3000"
-]
-
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
-    allow_credentials=True,
+    allow_origins=["*"],  # ✅ Allow all origins
+    allow_credentials=True,  # ⚠️ Cannot be used with "*" in some cases (see below)
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -37,7 +33,6 @@ async def shutdown():
     Shutdown function for reconnecting from db.
     """
     await database.disconnect()
-
 
 @app.get("/some_info")
 async def some_info(auth_token: Optional[str] = Header(None)):

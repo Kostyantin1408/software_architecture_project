@@ -3,6 +3,8 @@ import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-d
 import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedPage from './components/Protected';
+import MeetingDashboard from './components/MeetingDashboard';
+
 
 const App = () => {
   return (
@@ -11,10 +13,10 @@ const App = () => {
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
         <Route
-          path="/protected"
+          path="/dashboard"
           element={
             localStorage.getItem('token') ? (
-              <ProtectedPage />
+              <MeetingDashboard />
             ) : (
               <Navigate to="/login" />
             )
