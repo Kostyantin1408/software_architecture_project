@@ -9,6 +9,8 @@ from utils import generate_jwt
 from fastapi.middleware.cors import CORSMiddleware
 from app.rabbit_listener.publisher import publish_user_registered
 import uuid
+import consul
+
 
 metadata.create_all(engine)
 
@@ -16,8 +18,8 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # ✅ Allow all origins
-    allow_credentials=True,  # ⚠️ Cannot be used with "*" in some cases (see below)
+    allow_origins=["*"],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -27,6 +29,8 @@ async def startup():
     """
     Startup function for connecting to db.
     """
+    consul_client = consul.Consul(host='consul', port=8500)
+    consul_client.kv.put("auth_service_url", "http://localhost:8000")
     await database.connect()
 
 

@@ -4,8 +4,14 @@ import pika
 from pika.exceptions import AMQPConnectionError
 import time
 import boto3
+import consul
 
 RABBIT_URL = os.getenv("RABBIT_URL", "amqp://guest:guest@rabbitmq:5672/")
+
+consul_client = consul.Consul(host='consul', port=8500)
+consul_client.kv.put("mail_sender_service_url", "http://localhost:8002")
+consul_client.kv.put("rabbit_url", RABBIT_URL)
+consul_client.kv.put("message_queue", "messages")
 
 while True:
     try:
