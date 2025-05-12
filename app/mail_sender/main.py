@@ -21,7 +21,7 @@ ch.exchange_declare(exchange="events", exchange_type="topic", durable=True)
 ch.queue_declare(queue="messages", durable=True)
 ch.queue_bind(
   exchange="events",
-  queue="notifications",
+  queue="messages",
   routing_key="user.registered"
 )
 
@@ -30,7 +30,7 @@ ses = boto3.client("ses", region_name=os.getenv("AWS_REGION", "eu-west-1"))
 def send_email(to: str, subject: str, body: str):
     print("GOING TO SEND EMAIL TO: ", to)
     ses.send_email(
-      Source = "timely@gmail.com",
+      Source = "kostyantin1408@gmail.com",
       Destination = {"ToAddresses": [to]},
       Message     = {
         "Subject": {"Data": subject},
@@ -60,7 +60,7 @@ def handle_registration(evt):
     )
 
 if __name__ == "__main__":
-    print("🟢 Mail‑sender connected to RabbitMQ, bound to queue 'notifications'")
+    print("🟢 Mail‑sender connected to RabbitMQ, bound to queue 'messages'")
     ch.basic_qos(prefetch_count=1)
     ch.basic_consume(queue="messages", on_message_callback=on_message)
     ch.start_consuming()
