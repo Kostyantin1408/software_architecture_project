@@ -117,5 +117,15 @@ services:
         condition: service_completed_successfully
     ports:
       - "8003:8003"
+  booking-service:
+    build:
+      context: .
+      dockerfile: app/booking/Dockerfile
+    volumes:
+      - .:/app
+    ports:
+      - "8005:8005"
+    depends_on:
+      - postgres
 volumes:
   pgdata:
