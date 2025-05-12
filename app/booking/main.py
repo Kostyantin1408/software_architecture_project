@@ -1,162 +1,137 @@
-import os
-from datetime import datetime
+import datetime
+from fastapi import FastAPI, Header, HTTPException, Depends, Query
+from app.models.time_slots import TimeSlotIn, TimeSlotOut
+from pydantic import BaseModel, Field
+import uuid, os, asyncio
+import aioboto3
+from dotenv import load_dotenv, find_dotenv
+from app.database import database
+from app.models.user import revoked_tokens
+from boto3.dynamodb.conditions import Key
 from typing import List
+from fastapi import Body
 
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import (
-    Column, Integer, Text, ForeignKey, DateTime,
-    create_engine, func, select, text
-)
-from sqlalchemy.dialects.postgresql import TSTZRANGE, ExcludeConstraint
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from psycopg2.extras import DateTimeTZRange
 
-DB_USER = os.getenv("POSTGRES_USER", "slots_user")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "secret_pass")
-DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
-DB_NAME = os.getenv("POSTGRES_DB", "slots_db")
-DB_PORT = os.getenv("POSTGRES_PORT", "5432")
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
 
-engine = create_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False)
-Base = declarative_base()
-app = FastAPI()
 
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    email = Column(Text, unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+load_dotenv(find_dotenv())
 
-class Appointment(Base):
-    __tablename__ = "appointments"
-    id = Column(Integer, primary_key=True)
-    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    slot = Column(TSTZRANGE, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+TABLE_NAME = os.getenv("SLOTS_TABLE", "TimeSlots")
+RESERVATIONS_TABLE = os.getenv("RESERVATIONS_TABLE", "Reservations")
+DYNAMODB_ENDPOINT = os.getenv("DYNAMODB_ENDPOINT", "http://dynamodb-local:8000")
 
-    creator = relationship("User")
-    participants = relationship(
-        "Participant",
-        back_populates="appointment",
-        cascade="all, delete-orphan"
-    )
+app = FastAPI(title="Booking Service")
 
-    __table_args__ = (
-        ExcludeConstraint(('creator_id', '='), ('slot', '&&'), using='gist'),
-    )
+class BookingIn(BaseModel):
+    timeslot:     TimeSlotIn
+    participants: List[str] = Field(..., example=["alice@example.com", "bob@example.com"])
 
-class Participant(Base):
-    __tablename__ = "participants"
-    appointment_id = Column(Integer, ForeignKey("appointments.id"), primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    email = Column(Text, primary_key=True)
-    status = Column(Text, nullable=False, default='pending')
-    invited_at = Column(DateTime(timezone=True), server_default=func.now())
+class BookingOut(BaseModel):
+    slot_id: str
+    user_email: str
+    start_time: str
+    end_time: str
+    participants: List[str]
 
-    appointment = relationship("Appointment", back_populates="participants")
-    user = relationship("User")
+async def get_dynamo_slots():
+    session = aioboto3.Session()
+    async with session.resource("dynamodb", region_name=AWS_REGION, endpoint_url=DYNAMODB_ENDPOINT) as dynamo:
+      table = await dynamo.Table("TimeSlots")
+      yield table
 
-class AppointmentIn(BaseModel):
-    start_time: datetime = Field(..., example="2025-04-20T13:00:00Z")
-    end_time: datetime = Field(..., example="2025-04-20T14:00:00Z")
-    participants: List[EmailStr] = Field(
-        ..., example=["alice@example.com", "bob@example.com"]
-    )
+async def get_dynamo_reservations():
+    session = aioboto3.Session()
+    async with session.resource("dynamodb", region_name=AWS_REGION, endpoint_url=DYNAMODB_ENDPOINT) as dynamo:
+      table = await dynamo.Table("Reservations")
+      yield table
 
-class AppointmentOut(BaseModel):
-    id: int
-    start_time: datetime
-    end_time: datetime
-    participants: List[EmailStr]
-
-    class Config:
-        orm_mode = True
-
-@app.on_event("startup")
-def on_startup():
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
-        conn.commit()
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-def get_db():
-    db = SessionLocal()
+async def get_current_user_email(auth_token: str = Header(...)) -> str:
+    from utils import generate_jwt
     try:
-        yield db
-    finally:
-        db.close()
+        payload = generate_jwt.decode_access_token(auth_token)
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    jwt_uuid = payload.get("jit")
+    query = revoked_tokens.select().where(revoked_tokens.c.jti == jwt_uuid)
+    revoked_token = await database.fetch_one(query)
+    if revoked_token:
+        raise HTTPException(401, "Token is revoked")
+    user_email = payload.get("email")
+    if not user_email:
+        raise HTTPException(401, "Token has no subject")
+    return user_email
 
-def get_or_create_user(db, email: str):
-    user = db.query(User).filter_by(email=email).first()
-    if not user:
-        user = User(email=email)
-        db.add(user)
-        db.flush()
-    return user
-
-@app.post("/booking/", response_model=AppointmentOut)
-def create_appointment(
-    data: AppointmentIn,
-    db = Depends(get_db),
+@app.post("/booking", response_model=TimeSlotOut)
+async def create_booking(
+    slot_in: TimeSlotIn = Body(...),
+    participants: List[str] = Body(
+        ..., 
+        embed=True,
+        example=["alice@example.com", "bob@example.com"],
+    ),
+    current_user_email: str = Depends(get_current_user_email),
+    reservations_table = Depends(get_dynamo_reservations),
 ):
-    if data.end_time <= data.start_time:
-        raise HTTPException(status_code=400, detail="end_time must be after start_time")
+    slot_id = str(uuid.uuid4())
 
-    creator = get_or_create_user(db, email="creator@example.com")
+    for participant in participants:
+        await reservations_table.put_item(Item={
+            "participantEmail": participant,
+            "creatorEmail":     current_user_email,
+            "slotId":           slot_id,
+            "startTime":        slot_in.start_time,
+            "endTime":          slot_in.end_time,
+        })
+    await reservations_table.put_item(Item={
+        "participantEmail": current_user_email,
+        "creatorEmail":     current_user_email,
+        "slotId":           slot_id,
+        "startTime":        slot_in.start_time,
+        "endTime":          slot_in.end_time,
+    })
 
-    ts_range = DateTimeTZRange(data.start_time, data.end_time, '[)')
+    return TimeSlotOut(
+        slot_id     = slot_id,
+        user_email  = current_user_email,
+        start_time  = slot_in.start_time,
+        end_time    = slot_in.end_time,
+        participants= participants,
+    )
 
-    appointment = Appointment(creator_id=creator.id, slot=ts_range)
-    db.add(appointment)
-    db.flush()
+@app.get("/booking", response_model=list[TimeSlotOut])
+async def list_bookings(
+    current_user_email: str = Depends(get_current_user_email),
+    reservations_table = Depends(get_dynamo_reservations),
+):
+    resp = await reservations_table.query(
+        KeyConditionExpression=Key("participantEmail").eq(current_user_email)
+    )
+    items = resp.get("Items", [])
 
-    for email in data.participants:
-        user = get_or_create_user(db, email)
-        part = Participant(
-            appointment_id=appointment.id,
-            user_id=user.id,
-            email=email,
+    slots_map = {}
+    for it in items:
+        sid = it["slotId"]
+        if sid not in slots_map:
+            slots_map[sid] = {
+                "slot_id":    sid,
+                "user_email": it["creatorEmail"],
+                "start_time": it["startTime"],
+                "end_time":   it["endTime"],
+                "participants": set(),
+            }
+        slots_map[sid]["participants"].add(it["participantEmail"])
+
+    result = []
+    for data in slots_map.values():
+        result.append(
+            BookingOut(
+                slot_id=data["slot_id"],
+                user_email=data["user_email"],
+                start_time=data["start_time"],
+                end_time=data["end_time"],
+                participants=list(data["participants"]),
+            )
         )
-        db.add(part)
 
-    db.commit()
-    db.refresh(appointment)
-
-    return AppointmentOut(
-        id=appointment.id,
-        start_time=data.start_time,
-        end_time=data.end_time,
-        participants=data.participants,
-    )
-
-@app.get("/booking/", response_model=List[AppointmentOut])
-def read_appointments(
-    email: EmailStr,
-    db = Depends(get_db),
-):
-    stmt = (
-        select(Appointment)
-        .join(Participant)
-        .filter(Participant.email == email)
-    )
-    results = db.execute(stmt).scalars().all()
-
-    out = []
-    for apt in results:
-        start, end = apt.slot.lower, apt.slot.upper
-        emails = [p.email for p in apt.participants]
-        out.append(AppointmentOut(
-            id=apt.id,
-            start_time=start,
-            end_time=end,
-            participants=emails,
-        ))
-    return out
+    return result

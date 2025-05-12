@@ -6,7 +6,6 @@ import aioboto3
 from dotenv import load_dotenv, find_dotenv
 from app.database import database
 from app.models.user import revoked_tokens
-import consul
 
 load_dotenv(find_dotenv())
 
@@ -15,9 +14,6 @@ TABLE_NAME = os.getenv("SLOTS_TABLE", "TimeSlots")
 DYNAMODB_ENDPOINT = os.getenv("DYNAMODB_ENDPOINT", "http://dynamodb-local:8000")
 
 app = FastAPI(title="TimeSlot Service")
-
-consul_client = consul.Consul(host='consul', port=8500)
-consul_client.kv.put("slots_service_url", "http://localhost:8001")
 
 async def get_current_user_email(auth_token: str = Header(...)) -> str:
     from utils import generate_jwt
