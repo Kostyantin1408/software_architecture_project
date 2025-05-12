@@ -10,7 +10,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.rabbit_listener.publisher import publish_user_registered
 import uuid
 import consul
-
+import socket
+import os
 
 metadata.create_all(engine)
 
@@ -24,13 +25,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+CONSUL_HOST  = os.getenv("CONSUL_HOST", "consul")
+CONSUL_PORT  = int(os.getenv("CONSUL_PORT", 8500))
+SERVICE_NAME = os.getenv("SERVICE_NAME", "auth-service")
+SERVICE_PORT = int(os.getenv("SERVICE_PORT", 8000))
+
+consul_client = consul.Consul(host=CONSUL_HOST, port=CONSUL_PORT)
+
 @app.on_event("startup")
 async def startup():
     """
     Startup function for connecting to db.
     """
-    consul_client = consul.Consul(host='consul', port=8500)
-    consul_client.kv.put("auth_service_url", "http://localhost:8000")
+    svc_addr = socket.gethostname()
+    svc_id   = f"{SERVICE_NAME}-{svc_addr}"
+    consul_client.agent.service.register(
+        name=SERVICE_NAME,
+        service_id=svc_id,
+        address=svc_addr,
+        port=SERVICE_PORT,
+        check=consul.Check.http(
+            url=f"http://{svc_addr}:{SERVICE_PORT}/health",
+            interval="10s",
+            timeout="5s"
+        )
+    )
+    app.state.consul_service_id = svc_id
     await database.connect()
 
 
@@ -39,36 +59,12 @@ async def shutdown():
     """
     Shutdown function for reconnecting from db.
     """
+    consul_client.agent.service.deregister(app.state.consul_service_id)
     await database.disconnect()
 
-@app.get("/some_info")
-async def some_info(auth_token: Optional[str] = Header(None)):
-    """
-    Example handler for route, that requires user authorization and takes auth-token in header.
-    If header is invalid or missing, doesn't return required info.
-    """
-    if not auth_token:
-        raise HTTPException(status_code=403, detail="Unauthorized")
-    desoded_token = generate_jwt.decode_access_token(auth_token)
-    user_id = desoded_token.get("sub")
-
-    if user_id is None:
-        raise HTTPException(
-            status_code=403,
-            detail="Invalid token: subject missing"
-    )
-
-    query = users.select().where(users.c.id == int(user_id))
-    current_user = await database.fetch_one(query)
-    if not current_user:
-        raise HTTPException(
-            status_code=403,
-            detail="User not found"
-    )
-
-    return "Hello world!"
-
-
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
 
 @app.post("/login")
 async def login_user(user: dict = Body(...)):

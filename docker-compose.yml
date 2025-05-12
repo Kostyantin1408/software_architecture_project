@@ -1,5 +1,11 @@
 version: '3.8'
 services:
+  consul:
+    image: consul:1.15
+    command: agent -dev -client=0.0.0.0
+    ports:
+      - "8500:8500"
+      - "8600:8600/udp"
   dynamodb-local:
     image: amazon/dynamodb-local
     command: -jar DynamoDBLocal.jar -inMemory -sharedDb
@@ -53,15 +59,22 @@ services:
       - "15672:15672"
   auth-service:
     build:
-      context: .  
+      context: .
       dockerfile: app/auth/Dockerfile
     environment:
+      SERVICE_NAME: auth-service
+      CONSUL_HOST:  consul
+      CONSUL_PORT:  8500
+      SERVICE_PORT: 8000
       DATABASE_URL: sqlite+aiosqlite:///./test.db
-      RABBIT_URL: amqp://guest:guest@rabbitmq:5672/
+      RABBIT_URL:   amqp://guest:guest@rabbitmq:5672/
     volumes:
       - .:/app
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
+    depends_on:
+      - consul
+      - rabbitmq
   rabbit-listener:
     build:
       context: .
@@ -86,53 +99,78 @@ services:
     build:
       context: .
       dockerfile: app/slots/Dockerfile
+    environment:
+      SERVICE_NAME:       slots-service
+      CONSUL_HOST:        consul
+      CONSUL_PORT:        8500
+      SERVICE_PORT:       8001
+      AWS_ACCESS_KEY_ID:  dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_REGION:         eu-west-1
+      SLOTS_TABLE:        TimeSlots
+      DYNAMODB_ENDPOINT:  http://dynamodb-local:8000
     volumes:
       - .:/app
-    environment:
-      AWS_ACCESS_KEY_ID:      dummy
-      AWS_SECRET_ACCESS_KEY:  dummy
-      AWS_REGION: eu-west-1
-      SLOTS_TABLE: TimeSlots
-      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    expose:
+      - "8001"
     depends_on:
-      dynamodb-init:
-        condition: service_completed_successfully
-    ports:
-      - "8001:8001"
+      - consul
+      - dynamodb-init
   free-slots-service:
     build:
       context: .
       dockerfile: app/free_slots/Dockerfile
+    environment:
+      SERVICE_NAME:       free-slots-service
+      CONSUL_HOST:        consul
+      CONSUL_PORT:        8500
+      SERVICE_PORT:       8003
+      AWS_ACCESS_KEY_ID:  dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_REGION:         eu-west-1
+      SLOTS_TABLE:        TimeSlots
+      DYNAMODB_ENDPOINT:  http://dynamodb-local:8000
     volumes:
       - .:/app
-    environment:
-      AWS_ACCESS_KEY_ID:      dummy
-      AWS_SECRET_ACCESS_KEY:  dummy
-      AWS_REGION: eu-west-1
-      SLOTS_TABLE: TimeSlots
-      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    expose:
+      - "8003"
     depends_on:
-      dynamodb-init:
-        condition: service_completed_successfully
-    ports:
-      - "8003:8003"
+      - consul
+      - dynamodb-init
   booking-service:
     build:
       context: .
       dockerfile: app/booking/Dockerfile
+    environment:
+      SERVICE_NAME:          booking-service
+      CONSUL_HOST:           consul
+      CONSUL_PORT:           8500
+      SERVICE_PORT:          8005
+      AWS_ACCESS_KEY_ID:     dummy
+      AWS_SECRET_ACCESS_KEY: dummy
+      AWS_REGION:            eu-west-1
+      SLOTS_TABLE:           TimeSlots
+      RESERVATIONS_TABLE:    Reservations
+      DYNAMODB_ENDPOINT:     http://dynamodb-local:8000
     volumes:
       - .:/app
-    ports:
-      - "8005:8005"
-    environment:
-      AWS_ACCESS_KEY_ID:      dummy
-      AWS_SECRET_ACCESS_KEY:  dummy
-      AWS_REGION: eu-west-1
-      SLOTS_TABLE: TimeSlots
-      RESERVATIONS_TABLE: Reservations
-      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    expose:
+      - "8005"
     depends_on:
-      dynamodb-init:
-        condition: service_completed_successfully
-volumes:
-  pgdata:
+      - consul
+      - dynamodb-init
+  facade:
+    build:
+      context: .
+      dockerfile: app/facade/Dockerfile
+    environment:
+      - CONSUL_HOST=consul
+      - CONSUL_PORT=8500
+    ports:
+      - "8005:8000"
+    depends_on:
+      - consul
+      - auth-service
+      - slots-service
+      - free-slots-service
+      - booking-service
