@@ -47,6 +47,27 @@ async def create_slot(
     user_email: str = Depends(get_current_user_email),
     table = Depends(get_dynamo),
 ):
+    if slot.start_time >= slot.end_time:
+        raise HTTPException(
+            status_code=400,
+            detail="The start time must be earlier than the end time."
+        )
+
+    resp = await table.query(
+        KeyConditionExpression="userEmail = :u",
+        ExpressionAttributeValues={":u": user_email}
+    )
+
+    for existing_slot in resp.get("Items", []):
+        if not (
+            slot.end_time <= existing_slot["startTime"] or
+            slot.start_time >= existing_slot["endTime"]
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="The provided time slot overlaps with an existing slot."
+            )
+
     slot_id = str(uuid.uuid4())
     item = {
         "userEmail":    user_email,
@@ -73,43 +94,7 @@ async def list_slots(
             end_time=i["endTime"],
         ) for i in resp.get("Items", [])
     ]
-    
-@app.get("/slots/free", response_model=list[TimeSlotOut])
-async def get_free_slots(
-    time_interval: TimeSlotIn,
-    user_email: str = Depends(get_current_user_email),
-    table = Depends(get_dynamo),
-):
-    start_time = time_interval.start_time
-    end_time = time_interval.end_time
-    
-    resp = await table.query(
-        KeyConditionExpression="userEmail = :u",
-        ExpressionAttributeValues={":u": user_email}
-    )
-    
-    booked_slots = [
-        TimeSlotIn(
-            start_time=i["startTime"],
-            end_time=i["endTime"],
-        ) for i in resp.get("Items", [])
-    ]
 
-    print("booked_slots", booked_slots)
-    
-    booked_slots = sorted(booked_slots, key=lambda x: x.start_time)
-    booked_slots = list(filter(lambda x: x.end_time < end_time and x.start_time > start_time, booked_slots))
-    free_slots: list[TimeSlotOut] = []
-    for i in range(len(booked_slots) - 2):
-        free_slots.append(
-            TimeSlotOut(
-                slot_id=str(uuid.uuid4()),
-                start_time = booked_slots[i].end_time,
-                end_time = booked_slots[i + 1].start_time,
-            )
-        )
-    
-    return free_slots
     
 
 @app.delete("/slots/{slot_id}")

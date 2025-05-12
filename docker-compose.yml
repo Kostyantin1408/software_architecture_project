@@ -100,5 +100,32 @@ services:
         condition: service_completed_successfully
     ports:
       - "8001:8001"
+  free-slots-service:
+    build:
+      context: .
+      dockerfile: app/free_slots/Dockerfile
+    volumes:
+      - .:/app
+    environment:
+      AWS_ACCESS_KEY_ID:      dummy
+      AWS_SECRET_ACCESS_KEY:  dummy
+      AWS_REGION: eu-west-1
+      SLOTS_TABLE: TimeSlots
+      DYNAMODB_ENDPOINT: http://dynamodb-local:8000
+    depends_on:
+      dynamodb-init:
+        condition: service_completed_successfully
+    ports:
+      - "8003:8003"
+  booking-service:
+    build:
+      context: .
+      dockerfile: app/booking/Dockerfile
+    volumes:
+      - .:/app
+    ports:
+      - "8005:8005"
+    depends_on:
+      - postgres
 volumes:
   pgdata:
