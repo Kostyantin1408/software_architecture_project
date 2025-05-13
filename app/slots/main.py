@@ -110,9 +110,10 @@ async def create_slot(
 
 @app.get("/slots", response_model=list[TimeSlotOut])
 async def list_slots(
-    user_email: str = Depends(get_current_user_email),
+    user_email:str,
     table = Depends(get_dynamo),
 ):
+    print(user_email)
     resp = await table.query(
         KeyConditionExpression="userEmail = :u",
         ExpressionAttributeValues={":u": user_email}

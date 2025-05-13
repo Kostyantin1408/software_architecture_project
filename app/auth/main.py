@@ -14,7 +14,6 @@ import socket
 import os
 
 metadata.create_all(engine)
-
 app = FastAPI()
 
 app.add_middleware(
@@ -144,3 +143,32 @@ async def logout_user(auth_token: str = Header(...)):
     jwt_uuid = payload.get("jit")
     query = revoked_tokens.insert().values(jti=jwt_uuid)
     await database.execute(query)
+
+
+@app.get("/verify")
+async def verify_user(auth_token: str = Header(...)):
+    """
+    Example handler for route, that requires user authorization and takes auth-token in header.
+    If header is invalid or missing, doesn't return required info.
+    """
+    print("Token auth ", auth_token)
+    if not auth_token:
+        raise HTTPException(status_code=403, detail="Unauthorized")
+    desoded_token = generate_jwt.decode_access_token(auth_token)
+    user_id = desoded_token.get("sub")
+
+    if user_id is None:
+        raise HTTPException(
+            status_code=403,
+            detail="Invalid token: subject missing"
+    )
+
+    query = users.select().where(users.c.id == int(user_id))
+    current_user = await database.fetch_one(query)
+    if not current_user:
+        raise HTTPException(
+            status_code=403,
+            detail="User not found"
+    )
+
+    return True

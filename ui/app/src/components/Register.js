@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = process.env.REACT_APP_FACADE_URL;
 
 const Register = () => {
   const navigate = useNavigate();
@@ -20,7 +20,7 @@ const Register = () => {
       setError('Passwords do not match');
       return;
     }
-
+    console.log(`${API_URL}/register`)
     try {
       const res = await axios.post(`${API_URL}/register`, {
         name,

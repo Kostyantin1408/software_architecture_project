@@ -4,11 +4,14 @@ import Login from './components/Login';
 import Register from './components/Register';
 import ProtectedPage from './components/Protected';
 import MeetingDashboard from './components/MeetingDashboard';
+import LogoutButton from './components/LogoutButton';
+
 
 
 const App = () => {
   return (
     <Router>
+      <LogoutButton />
       <Routes>
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />

@@ -2,8 +2,17 @@ import os, random
 import consul
 import httpx
 from fastapi import FastAPI, HTTPException, Header
+from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="API Gateway / Façade")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 CONSUL_HOST = os.getenv("CONSUL_HOST", "consul")
 CONSUL_PORT = int(os.getenv("CONSUL_PORT", 8500))
@@ -17,9 +26,11 @@ def pick(service_name: str) -> str:
     return f"http://{svc['Address']}:{svc['Port']}"
 
 async def verify(token: str) -> bool:
+    print("Token ", token)
     url = pick("auth-service") + "/verify"
     async with httpx.AsyncClient() as client:
-        r = await client.post(url, headers={"Authorization": f"Bearer {token}"})
+        r = await client.get(url, headers={"auth-token": f"{token}"})
+        print("Response ", r)
         return r.status_code == 200
 
 @app.get("/health")
@@ -40,7 +51,6 @@ async def register(payload: dict):
         r = await client.post(url, json=payload)
         return r.json()
 
-
 @app.post("/book")
 async def book(booking: dict, authorization: str = Header(...)):
     if not await verify(authorization):
@@ -51,12 +61,12 @@ async def book(booking: dict, authorization: str = Header(...)):
         return r.json()
 
 @app.get("/slots")
-async def slots(service_type: str, date: str, authorization: str = Header(...)):
+async def slots(email:str, authorization: str = Header(...)):
     if not await verify(authorization):
         raise HTTPException(401, "Invalid token")
     url = pick("slots-service") + "/slots"
     async with httpx.AsyncClient() as client:
-        r = await client.get(url, params={"service_type": service_type, "date": date},
+        r = await client.get(url, params={"user_email": email},
                               headers={"Authorization": authorization})
         return r.json()
 
