@@ -55,9 +55,19 @@ async def register(payload: dict):
 async def book(booking: dict, authorization: str = Header(...)):
     if not await verify(authorization):
         raise HTTPException(401, "Invalid token")
-    url = pick("booking-service") + "/booking"
+    url = pick("slots-service") + "/booking"
     async with httpx.AsyncClient() as client:
         r = await client.post(url, json=booking, headers={"Authorization": authorization})
+        return r.json()
+    
+@app.get("/bookings")
+async def user_bookings(authorization: str = Header(...)):
+    if not await verify(authorization):
+        raise HTTPException(401, "Invalid token")
+    url = pick("slots-service") + "/booking"
+    async with httpx.AsyncClient() as client:
+        r = await client.get(url, headers={"Authorization": authorization})
+        r.raise_for_status()
         return r.json()
 
 @app.get("/slots")
@@ -68,15 +78,6 @@ async def slots(email:str, authorization: str = Header(...)):
     async with httpx.AsyncClient() as client:
         r = await client.get(url, params={"user_email": email},
                               headers={"Authorization": authorization})
-        return r.json()
-
-@app.get("/bookings/{user_id}")
-async def user_bookings(user_id: str, authorization: str = Header(...)):
-    if not await verify(authorization):
-        raise HTTPException(401, "Invalid token")
-    url = pick("booking-service") + f"/bookings/{user_id}"
-    async with httpx.AsyncClient() as client:
-        r = await client.get(url, headers={"Authorization": authorization})
         return r.json()
     
 class TimeSlotIn(BaseModel):
