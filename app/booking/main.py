@@ -77,10 +77,11 @@ async def get_dynamo_reservations():
       table = await dynamo.Table("Reservations")
       yield table
 
-async def get_current_user_email(auth_token: str = Header(...)) -> str:
+async def get_current_user_email(Authorization: str = Header(...)) -> str:
     from utils import generate_jwt
     try:
-        payload = generate_jwt.decode_access_token(auth_token)
+        Authorization = Authorization[7:].strip()
+        payload = generate_jwt.decode_access_token(Authorization)
     except Exception:
         raise HTTPException(401, "Invalid token")
     jwt_uuid = payload.get("jit")

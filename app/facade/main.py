@@ -3,7 +3,7 @@ import consul
 import httpx
 from fastapi import FastAPI, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
-
+from pydantic import BaseModel
 app = FastAPI(title="API Gateway / Façade")
 
 app.add_middleware(
@@ -77,4 +77,23 @@ async def user_bookings(user_id: str, authorization: str = Header(...)):
     url = pick("booking-service") + f"/bookings/{user_id}"
     async with httpx.AsyncClient() as client:
         r = await client.get(url, headers={"Authorization": authorization})
+        return r.json()
+    
+class TimeSlotIn(BaseModel):
+    start_time: str
+    end_time: str
+
+@app.post("/slots")
+async def slots_pos(
+    slot: dict,
+    authorization: str = Header(...)
+):
+    print("slots recieved", slot)
+    if not await verify(authorization):
+        raise HTTPException(401, "Invalid token")
+    url = pick("slots-service") + "/slots"
+    async with httpx.AsyncClient() as client:
+        print("Sended slots")
+        r = await client.post(url, json=slot,
+                              headers={"Authorization": authorization})
         return r.json()

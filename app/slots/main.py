@@ -8,6 +8,7 @@ from app.database import database
 from app.models.user import revoked_tokens
 import consul
 import socket
+from pydantic import BaseModel
 
 load_dotenv(find_dotenv())
 
@@ -49,10 +50,11 @@ async def shutdown():
 async def health():
     return {"status": "ok"}
 
-async def get_current_user_email(auth_token: str = Header(...)) -> str:
+async def get_current_user_email(Authorization: str = Header(...)) -> str:
     from utils import generate_jwt
     try:
-        payload = generate_jwt.decode_access_token(auth_token)
+        authorization = Authorization[7:].strip()
+        payload = generate_jwt.decode_access_token(authorization)
     except Exception:
         raise HTTPException(401, "Invalid token")
     jwt_uuid = payload.get("jit")
@@ -71,12 +73,17 @@ async def get_dynamo():
       table = await dynamo.Table("TimeSlots")
       yield table
 
+class TimeSlotBody(BaseModel):
+    start_time: str
+    end_time: str
+
 @app.post("/slots", response_model=TimeSlotOut)
 async def create_slot(
-    slot: TimeSlotIn,
+    slot: TimeSlotBody,
     user_email: str = Depends(get_current_user_email),
     table = Depends(get_dynamo),
 ):
+    print("Slots micro ",slot )
     if slot.start_time >= slot.end_time:
         raise HTTPException(
             status_code=400,
