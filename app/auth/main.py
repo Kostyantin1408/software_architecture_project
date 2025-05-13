@@ -154,6 +154,8 @@ async def verify_user(auth_token: str = Header(...)):
     print("Token auth ", auth_token)
     if not auth_token:
         raise HTTPException(status_code=403, detail="Unauthorized")
+    auth_token = auth_token[7:].strip()
+    print("Token auth ", auth_token)
     desoded_token = generate_jwt.decode_access_token(auth_token)
     user_id = desoded_token.get("sub")
 
