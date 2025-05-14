@@ -110,7 +110,6 @@ async def create_slot(
     user_email: str = Depends(get_current_user_email),
     table = Depends(get_dynamo),
 ):
-    print("Slots micro ",slot )
     if slot.start_time >= slot.end_time:
         raise HTTPException(
             status_code=400,
@@ -170,48 +169,60 @@ async def delete_slot(
     await table.delete_item(Key={"userEmail": user_email, "slotId": slot_id})
     return {"deleted": slot_id}
 
-@app.post("/booking", response_model=TimeSlotOut)
+
+class BookingResponse(BaseModel):
+    success: bool
+
+
+@app.post("/booking", response_model=BookingResponse)
 async def create_booking(
-    slot_in: TimeSlotIn = Body(...),
-    participants: List[str] = Body(
-        ..., 
-        embed=True,
-        example=["alice@example.com", "bob@example.com"],
-    ),
+    data: dict,
     current_user_email: str = Depends(get_current_user_email),
     reservations_table = Depends(get_dynamo_reservations),
+    slot_table = Depends(get_dynamo),
 ):
-    slot_id = str(uuid.uuid4())
+    print("Input book", data["slot_id"])
 
-    for participant in participants:
-        await reservations_table.put_item(Item={
+    resp = await slot_table.query(
+        KeyConditionExpression="userEmail = :u",
+        ExpressionAttributeValues={":u": data["host_email"]}
+    )
+    slot_found = None
+    for i in resp.get("Items", []):
+        if i["slotId"] == data["slot_id"]:
+            slot_found = i
+    
+    slot_id = data["slot_id"]
+    
+    for participant in data["participants"]:
+        item={
             "participantEmail": participant,
             "creatorEmail":     current_user_email,
             "slotId":           slot_id,
-            "startTime":        slot_in.start_time,
-            "endTime":          slot_in.end_time,
-        })
+            "startTime":        slot_found["startTime"],
+            "endTime":          slot_found["endTime"],
+        }
+        await reservations_table.put_item(Item=item)
+    
     await reservations_table.put_item(Item={
         "participantEmail": current_user_email,
         "creatorEmail":     current_user_email,
         "slotId":           slot_id,
-        "startTime":        slot_in.start_time,
-        "endTime":          slot_in.end_time,
+        "startTime":        slot_found["startTime"],
+        "endTime":          slot_found["endTime"],
     })
+    
+    await slot_table.delete_item(Key={"userEmail": data["host_email"], "slotId": slot_id})
 
-    return TimeSlotOut(
-        slot_id     = slot_id,
-        user_email  = current_user_email,
-        start_time  = slot_in.start_time,
-        end_time    = slot_in.end_time,
-        participants= participants,
-    )
+    return BookingResponse(success = True)
 
-@app.get("/booking", response_model=list[TimeSlotOut])
+
+@app.get("/booking", response_model=list[BookingOut])
 async def list_bookings(
     current_user_email: str = Depends(get_current_user_email),
     reservations_table = Depends(get_dynamo_reservations),
 ):
+    print("Booking request here")
     resp = await reservations_table.query(
         KeyConditionExpression=Key("participantEmail").eq(current_user_email)
     )

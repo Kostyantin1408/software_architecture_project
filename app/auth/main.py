@@ -85,14 +85,14 @@ async def login_user(user: dict = Body(...)):
     existing_user = await database.fetch_one(query)
     if not existing_user:
         raise HTTPException(status_code=400, detail="No such user! Check your email and password!")
-
+    print("User database ",existing_user)
     token = generate_jwt.create_access_token({
             "sub": str(existing_user["id"]),
             "name": existing_user["name"],
             "email": existing_user["email"],
             "jit": jwt_uuid
         })
-
+    print("Token auth", token)
     return {"access_token": token, "user": existing_user}
 
 

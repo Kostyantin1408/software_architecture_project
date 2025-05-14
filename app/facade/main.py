@@ -51,11 +51,12 @@ async def register(payload: dict):
         r = await client.post(url, json=payload)
         return r.json()
 
-@app.post("/book")
+@app.post("/booking")
 async def book(booking: dict, authorization: str = Header(...)):
     if not await verify(authorization):
         raise HTTPException(401, "Invalid token")
     url = pick("slots-service") + "/booking"
+    # print("Book boo", booking)
     async with httpx.AsyncClient() as client:
         r = await client.post(url, json=booking, headers={"Authorization": authorization})
         return r.json()
@@ -65,6 +66,8 @@ async def user_bookings(authorization: str = Header(...)):
     if not await verify(authorization):
         raise HTTPException(401, "Invalid token")
     url = pick("slots-service") + "/booking"
+    print("Found uri slots")
+
     async with httpx.AsyncClient() as client:
         r = await client.get(url, headers={"Authorization": authorization})
         r.raise_for_status()
@@ -96,5 +99,17 @@ async def slots_pos(
     async with httpx.AsyncClient() as client:
         print("Sended slots")
         r = await client.post(url, json=slot,
+                              headers={"Authorization": authorization})
+        return r.json()
+    
+
+@app.delete("/slots/{slot_id}")
+async def delete_slot(
+    slot_id: str,
+    authorization: str = Header(...)
+):  
+    url = pick("slots-service") + f"/slots/{slot_id}"
+    async with httpx.AsyncClient() as client:
+        r = await client.delete(url,
                               headers={"Authorization": authorization})
         return r.json()

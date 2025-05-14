@@ -1,35 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
-
-const API_URL = process.env.REACT_APP_API_URL_SLOTS;
+const API_URL = process.env.REACT_APP_FACADE_URL;
 
 const JoinMeetings = () => {
   const [freeSlots, setFreeSlots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedSlot, setSelectedSlot] = useState(null);
-  const [email, setEmail] = useState(''); // Store email input
-  const [startTime, setStartTime] = useState(''); // Store start time input
-  const [endTime, setEndTime] = useState(''); // Store end time input
-  const [shouldSearch, setShouldSearch] = useState(false); // State to track search trigger
+  const [email, setEmail] = useState('');
+  const [startTime, setStartTime] = useState('');
+  const [endTime, setEndTime] = useState('');
+  const [shouldSearch, setShouldSearch] = useState(false);
 
   useEffect(() => {
+    setShouldSearch(false); 
     const fetchFreeSlots = async () => {
-      if (!shouldSearch) return; // Don't fetch if the search button wasn't clicked
-
+      if (!shouldSearch) return;
+  
       try {
         setLoading(true);
-        const params = {};
-        if (email) params.email = email; // Only add email filter if provided
-        if (startTime) params.start_time = startTime; // Only add start_time filter if provided
-        if (endTime) params.end_time = endTime; // Only add end_time filter if provided
 
-        const res = await axios.get(`${API_URL}/slots/free`, {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-          params: params, // Pass only provided filters as query params
-        });
+        const res = await axios.get(
+          `${API_URL}/slots?email=${email}`,
+          {
+            headers: {
+              Authorization: `Bearer ${localStorage.getItem('token')}`,
+            },
+          }
+        );
+  
         setFreeSlots(res.data);
       } catch (err) {
         setError('Failed to load available slots. Please try again.');
@@ -37,10 +36,10 @@ const JoinMeetings = () => {
         setLoading(false);
       }
     };
-
+  
     fetchFreeSlots();
-  }, [shouldSearch]); // Only trigger effect when shouldSearch changes
-
+  }, [shouldSearch]);
+  
   const handleSelectSlot = (slot) => {
     setSelectedSlot(slot);
   };
@@ -52,15 +51,17 @@ const JoinMeetings = () => {
     }
 
     try {
-      await axios.post(
-        `${API_URL}/slots`,
+      const res = await axios.post(
+      `${API_URL}/booking`,
         {
-          start_time: selectedSlot.start_time,
-          end_time: selectedSlot.end_time,
+          slot_id: selectedSlot.slot_id,
+          host_email: email,
+          participants: [localStorage.getItem("email")],
         },
         {
           headers: {
             Authorization: `Bearer ${localStorage.getItem('token')}`,
+            'Content-Type': 'application/json',
           },
         }
       );
@@ -72,7 +73,7 @@ const JoinMeetings = () => {
   };
 
   const handleSearch = () => {
-    setShouldSearch(true); // Trigger the search when the button is clicked
+    setShouldSearch(true); 
   };
 
   return (
@@ -89,18 +90,6 @@ const JoinMeetings = () => {
       />
 
       {/* Time Interval Inputs */}
-      <input
-        type="datetime-local"
-        value={startTime}
-        onChange={(e) => setStartTime(e.target.value)}
-        style={styles.timeInput}
-      />
-      <input
-        type="datetime-local"
-        value={endTime}
-        onChange={(e) => setEndTime(e.target.value)}
-        style={styles.timeInput}
-      />
 
       {/* Search Button */}
       <button onClick={handleSearch} style={styles.searchButton}>
@@ -109,7 +98,7 @@ const JoinMeetings = () => {
 
       {/* Show loading or error messages */}
       {loading ? (
-        <p style={styles.loading}>Loading available slots...</p>
+        <p style={styles.loading}>Enter email and start search</p>
       ) : error ? (
         <p style={styles.error}>{error}</p>
       ) : freeSlots.length === 0 ? (

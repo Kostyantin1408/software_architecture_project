@@ -19,9 +19,14 @@ const Login = () => {
       });
 
       const token = res.data.access_token;
-      localStorage.setItem('token', token);
-      localStorage.setItem('email', email);
-      navigate("/dashboard")
+      console.log(token)
+      if (token)
+        {
+          localStorage.setItem('token', token);
+          localStorage.setItem('email', email);
+          
+          navigate("/dashboard")
+      }
     } catch (err) {
       setError('Invalid credentials');
     }

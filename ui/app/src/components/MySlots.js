@@ -5,11 +5,13 @@ const API_URL = process.env.REACT_APP_FACADE_URL;
 
 const MySlots = () => {
   const [slots, setSlots] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [bookings, setBookings] = useState([]);
+  const [loadingSlots, setLoadingSlots] = useState(true);
+  const [loadingBookings, setLoadingBookings] = useState(true);
   const [error, setError] = useState('');
   const [newSlot, setNewSlot] = useState({ start_time: '', end_time: '' });
 
-  // Fetch the slots when the component mounts
+  // Fetch slots
   useEffect(() => {
     const fetchSlots = async () => {
       try {
@@ -20,25 +22,57 @@ const MySlots = () => {
         });
         setSlots(res.data);
       } catch (err) {
-        setError('Failed to load slots. Please try again later.');
+        setError('Failed to load slots.');
       } finally {
-        setLoading(false);
+        setLoadingSlots(false);
       }
     };
 
     fetchSlots();
   }, []);
 
-  // Handle changes in the input fields for new slot creation
+  // Fetch bookings
+  useEffect(() => {
+    const fetchBookings = async () => {
+      try {
+        const res = await axios.get(`${API_URL}/bookings`, {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`,
+          },
+        });
+        setBookings(res.data);
+      } catch (err) {
+        setError('Failed to load bookings.');
+      } finally {
+        setLoadingBookings(false);
+      }
+    };
+    fetchBookings();
+  }, []);
+
+
+  const handleDelete = async (slotId) => {
+    try {
+      const response = await axios.delete(`${API_URL}/slots/${slotId}`, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+  
+      console.log('Slot deleted:', response.data.deleted);
+  
+      setSlots((prev) => prev.filter((slot) => slot.slot_id !== slotId));
+    } catch (error) {
+      console.error('Error deleting slot:', error.response?.data || error.message);
+    }
+  };
+  
+
   const handleInputChange = (e) => {
     const { name, value } = e.target;
-    setNewSlot((prevSlot) => ({
-      ...prevSlot,
-      [name]: value,
-    }));
+    setNewSlot((prevSlot) => ({ ...prevSlot, [name]: value }));
   };
 
-  // Handle form submission to create a new slot
   const handleAddSlot = async (e) => {
     e.preventDefault();
     if (!newSlot.start_time || !newSlot.end_time) {
@@ -47,40 +81,39 @@ const MySlots = () => {
     }
 
     try {
-      const res = await axios.post(
-        `${API_URL}/slots`,
-        newSlot,
-        {
-          headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-          },
-        }
-      );
-      setSlots((prevSlots) => [...prevSlots, res.data]); // Add the new slot to the list
-      setNewSlot({ start_time: '', end_time: '' }); // Reset the form fields
-      setError(''); // Clear any previous errors
+      const res = await axios.post(`${API_URL}/slots`, newSlot, {
+        headers: {
+          Authorization: `Bearer ${localStorage.getItem('token')}`,
+        },
+      });
+      setSlots((prev) => [...prev, res.data]);
     } catch (err) {
-      setError('Failed to create new slot. Please try again.');
+      setError('Failed to create new slot.');
     }
   };
 
   return (
     <div style={styles.container}>
+      {error && <p style={styles.error}>{error}</p>}
+
       <h2>My Available Slots</h2>
-      
-      {/* Conditional Rendering for loading, error, and no slots */}
-      {loading ? (
-        <p style={styles.loading}>Loading...</p>
-      ) : error ? (
-        <p style={styles.error}>{error}</p>
-      ) : slots.length === 0 ? (
+
+      {loadingSlots ? (
+        <p style={styles.loading}>Loading slots...</p>
+      )  : slots.length === 0 ? (
         <p>No slots found. Please add a new slot.</p>
       ) : (
         <ul style={styles.slotList}>
-          {slots.map((slot) => (
+          {slots.map((slot) => (<>
             <li key={slot.slot_id} style={styles.slotItem}>
               {slot.start_time} - {slot.end_time}
-            </li>
+            </li> <button
+          style={styles.deleteButton}
+          onClick={() => handleDelete(slot.slot_id)}
+        >
+          🗑️
+        </button>
+      </>
           ))}
         </ul>
       )}
@@ -111,6 +144,26 @@ const MySlots = () => {
         </div>
         <button type="submit" style={styles.button}>Add Slot</button>
       </form>
+
+      <h2 style={{ marginTop: '40px' }}>My Bookings</h2>
+
+      {loadingBookings ? (
+        <p style={styles.loading}>Loading bookings...</p>
+      ) : bookings.length === 0 ? (
+        <p>No bookings found.</p>
+      ) : (
+        <ul style={styles.slotList}>
+          {bookings.map((booking) => (
+            <li key={booking.slot_id} style={styles.slotItem}>
+              <strong>Slot ID:</strong> {booking.slot_id}<br />
+              <strong>User:</strong> {booking.user_email}<br />
+              <strong>Start:</strong> {booking.start_time}<br />
+              <strong>End:</strong> {booking.end_time}<br />
+              <strong>Participants:</strong> {booking.participants.join(', ')}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 };
@@ -134,9 +187,12 @@ const styles = {
     margin: '20px 0',
   },
   slotItem: {
-    padding: '10px 0',
-    fontWeight: '600',
+    padding: '10px',
+    fontWeight: '500',
     borderBottom: '1px solid #ddd',
+    backgroundColor: '#fff',
+    borderRadius: '4px',
+    marginBottom: '10px',
     color: '#333',
   },
   error: {
@@ -167,10 +223,6 @@ const styles = {
     borderRadius: '4px',
     fontSize: '16px',
     cursor: 'pointer',
-    transition: 'background-color 0.3s ease',
-  },
-  buttonHover: {
-    backgroundColor: '#0056b3',
   },
 };
 
