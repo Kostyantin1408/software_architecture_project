@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { useNavigate } from 'react-router-dom';
 
-const API_URL = process.env.REACT_APP_API_URL;
+const API_URL = process.env.REACT_APP_FACADE_URL;
 
 const Login = () => {
   const navigate = useNavigate();
@@ -18,9 +18,15 @@ const Login = () => {
         password,
       });
 
-      const token = res.data.token;
-      localStorage.setItem('token', token);
-      alert('Login successful!');
+      const token = res.data.access_token;
+      console.log(token)
+      if (token)
+        {
+          localStorage.setItem('token', token);
+          localStorage.setItem('email', email);
+          
+          navigate("/dashboard")
+      }
     } catch (err) {
       setError('Invalid credentials');
     }

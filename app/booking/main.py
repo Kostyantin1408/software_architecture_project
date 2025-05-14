@@ -1,162 +1,96 @@
-import os
-from datetime import datetime
+import datetime
+from fastapi import FastAPI, Header, HTTPException, Depends, Query
+from app.models.time_slots import TimeSlotIn, TimeSlotOut
+from pydantic import BaseModel, Field
+import uuid, os, asyncio
+import aioboto3
+from dotenv import load_dotenv, find_dotenv
+from app.database import database
+from app.models.user import revoked_tokens
+from boto3.dynamodb.conditions import Key
 from typing import List
+from fastapi import Body
+import consul
+import socket
 
-from fastapi import FastAPI, Depends, HTTPException
-from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy import (
-    Column, Integer, Text, ForeignKey, DateTime,
-    create_engine, func, select, text
-)
-from sqlalchemy.dialects.postgresql import TSTZRANGE, ExcludeConstraint
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, relationship
-from psycopg2.extras import DateTimeTZRange
+load_dotenv(find_dotenv())
 
-DB_USER = os.getenv("POSTGRES_USER", "slots_user")
-DB_PASSWORD = os.getenv("POSTGRES_PASSWORD", "secret_pass")
-DB_HOST = os.getenv("POSTGRES_HOST", "postgres")
-DB_NAME = os.getenv("POSTGRES_DB", "slots_db")
-DB_PORT = os.getenv("POSTGRES_PORT", "5432")
-DATABASE_URL = (
-    f"postgresql+psycopg2://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-)
+AWS_REGION = os.getenv("AWS_REGION", "eu-west-1")
+TABLE_NAME = os.getenv("SLOTS_TABLE", "TimeSlots")
+RESERVATIONS_TABLE = os.getenv("RESERVATIONS_TABLE", "Reservations")
+DYNAMODB_ENDPOINT = os.getenv("DYNAMODB_ENDPOINT", "http://dynamodb-local:8000")
 
-engine = create_engine(DATABASE_URL, echo=True)
-SessionLocal = sessionmaker(bind=engine, autoflush=False)
-Base = declarative_base()
-app = FastAPI()
+app = FastAPI(title="Booking Service")
 
-class User(Base):
-    __tablename__ = "users"
-    id = Column(Integer, primary_key=True)
-    email = Column(Text, unique=True, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
+CONSUL_HOST  = os.getenv("CONSUL_HOST", "consul")
+CONSUL_PORT  = int(os.getenv("CONSUL_PORT", 8500))
+SERVICE_NAME = os.getenv("SERVICE_NAME", "booking-service")
+SERVICE_PORT = int(os.getenv("SERVICE_PORT", 8005))
 
-class Appointment(Base):
-    __tablename__ = "appointments"
-    id = Column(Integer, primary_key=True)
-    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
-    slot = Column(TSTZRANGE, nullable=False)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    creator = relationship("User")
-    participants = relationship(
-        "Participant",
-        back_populates="appointment",
-        cascade="all, delete-orphan"
-    )
-
-    __table_args__ = (
-        ExcludeConstraint(('creator_id', '='), ('slot', '&&'), using='gist'),
-    )
-
-class Participant(Base):
-    __tablename__ = "participants"
-    appointment_id = Column(Integer, ForeignKey("appointments.id"), primary_key=True)
-    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
-    email = Column(Text, primary_key=True)
-    status = Column(Text, nullable=False, default='pending')
-    invited_at = Column(DateTime(timezone=True), server_default=func.now())
-
-    appointment = relationship("Appointment", back_populates="participants")
-    user = relationship("User")
-
-class AppointmentIn(BaseModel):
-    start_time: datetime = Field(..., example="2025-04-20T13:00:00Z")
-    end_time: datetime = Field(..., example="2025-04-20T14:00:00Z")
-    participants: List[EmailStr] = Field(
-        ..., example=["alice@example.com", "bob@example.com"]
-    )
-
-class AppointmentOut(BaseModel):
-    id: int
-    start_time: datetime
-    end_time: datetime
-    participants: List[EmailStr]
-
-    class Config:
-        orm_mode = True
+consul_client = consul.Consul(host=CONSUL_HOST, port=CONSUL_PORT)
 
 @app.on_event("startup")
-def on_startup():
-    with engine.connect() as conn:
-        conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
-        conn.commit()
-
-    Base.metadata.drop_all(bind=engine)
-    Base.metadata.create_all(bind=engine)
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-def get_or_create_user(db, email: str):
-    user = db.query(User).filter_by(email=email).first()
-    if not user:
-        user = User(email=email)
-        db.add(user)
-        db.flush()
-    return user
-
-@app.post("/booking/", response_model=AppointmentOut)
-def create_appointment(
-    data: AppointmentIn,
-    db = Depends(get_db),
-):
-    if data.end_time <= data.start_time:
-        raise HTTPException(status_code=400, detail="end_time must be after start_time")
-
-    creator = get_or_create_user(db, email="creator@example.com")
-
-    ts_range = DateTimeTZRange(data.start_time, data.end_time, '[)')
-
-    appointment = Appointment(creator_id=creator.id, slot=ts_range)
-    db.add(appointment)
-    db.flush()
-
-    for email in data.participants:
-        user = get_or_create_user(db, email)
-        part = Participant(
-            appointment_id=appointment.id,
-            user_id=user.id,
-            email=email,
+async def startup():
+    svc_addr = socket.gethostname()
+    svc_id   = f"{SERVICE_NAME}-{svc_addr}"
+    consul_client.agent.service.register(
+        name=SERVICE_NAME,
+        service_id=svc_id,
+        address=svc_addr,
+        port=SERVICE_PORT,
+        check=consul.Check.http(
+            url=f"http://{svc_addr}:{SERVICE_PORT}/health",
+            interval="10s",
+            timeout="5s"
         )
-        db.add(part)
-
-    db.commit()
-    db.refresh(appointment)
-
-    return AppointmentOut(
-        id=appointment.id,
-        start_time=data.start_time,
-        end_time=data.end_time,
-        participants=data.participants,
     )
+    app.state.consul_service_id = svc_id
 
-@app.get("/booking/", response_model=List[AppointmentOut])
-def read_appointments(
-    email: EmailStr,
-    db = Depends(get_db),
-):
-    stmt = (
-        select(Appointment)
-        .join(Participant)
-        .filter(Participant.email == email)
-    )
-    results = db.execute(stmt).scalars().all()
+@app.on_event("shutdown")
+async def shutdown():
+    consul_client.agent.service.deregister(app.state.consul_service_id)
 
-    out = []
-    for apt in results:
-        start, end = apt.slot.lower, apt.slot.upper
-        emails = [p.email for p in apt.participants]
-        out.append(AppointmentOut(
-            id=apt.id,
-            start_time=start,
-            end_time=end,
-            participants=emails,
-        ))
-    return out
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+class BookingIn(BaseModel):
+    timeslot:     TimeSlotIn
+    participants: List[str] = Field(..., example=["alice@example.com", "bob@example.com"])
+
+class BookingOut(BaseModel):
+    slot_id: str
+    user_email: str
+    start_time: str
+    end_time: str
+    participants: List[str]
+
+async def get_dynamo_slots():
+    session = aioboto3.Session()
+    async with session.resource("dynamodb", region_name=AWS_REGION, endpoint_url=DYNAMODB_ENDPOINT) as dynamo:
+      table = await dynamo.Table("TimeSlots")
+      yield table
+
+async def get_dynamo_reservations():
+    session = aioboto3.Session()
+    async with session.resource("dynamodb", region_name=AWS_REGION, endpoint_url=DYNAMODB_ENDPOINT) as dynamo:
+      table = await dynamo.Table("Reservations")
+      yield table
+
+async def get_current_user_email(Authorization: str = Header(...)) -> str:
+    from utils import generate_jwt
+    try:
+        Authorization = Authorization[7:].strip()
+        payload = generate_jwt.decode_access_token(Authorization)
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+    jwt_uuid = payload.get("jit")
+    query = revoked_tokens.select().where(revoked_tokens.c.jti == jwt_uuid)
+    revoked_token = await database.fetch_one(query)
+    if revoked_token:
+        raise HTTPException(401, "Token is revoked")
+    user_email = payload.get("email")
+    if not user_email:
+        raise HTTPException(401, "Token has no subject")
+    return user_email
+
