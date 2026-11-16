@@ -1,5 +1,13 @@
 # Timely
 
+Appointment booking app built as a set of microservices.
+
+**Stack:** Python / FastAPI services, Consul (service discovery), RabbitMQ, DynamoDB Local, React UI, Docker Compose.
+
+```bash
+docker compose up --build
+```
+
 During the session, we had to work in many teams at the same time. We had to have meetings with everyone. It took a lot of time to coordinate the time. This inspired us to develop our project - an application that makes it easier to make appointments. In addition, the idea itself is not complicated and will allow to get acquainted with microservice architecture and set up all the necessary services and databases without going into project details. Our goal is to develop a simple appointment booking application to demonstrate how microservices work.
 
 ### Architecture:
